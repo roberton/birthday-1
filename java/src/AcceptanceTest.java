@@ -1,12 +1,11 @@
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.PrintWriter;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
+import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
-import javax.mail.Message;
 import javax.mail.MessagingException;
+import javax.mail.internet.AddressException;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -15,51 +14,58 @@ import static org.junit.Assert.*;
 
 public class AcceptanceTest {
 
-	private static final String EMPLOYEE_DATA_FILE = "./employee_data.txt";
-	private static final int SMTP_PORT = 25;
-	private List<Message> messagesSent;
+	private List<HashMap> messagesSent;
 	private BirthdayService service;
 	
 	@Before
 	public void setUp() throws Exception {
-		createDataFile();
-		messagesSent = new ArrayList<Message>();
+		messagesSent = new ArrayList<HashMap>();
 
-		service = new BirthdayService() {			
-			@Override
-			protected void sendMessage(Message msg) throws MessagingException {
-				messagesSent.add(msg);
-			}
-		};
-	}
-	
-	private void createDataFile() throws FileNotFoundException, UnsupportedEncodingException {
-		File f = new File(EMPLOYEE_DATA_FILE);
-		if (f.canRead()) return;
-		PrintWriter writer = new PrintWriter(f, "UTF-8");
-		writer.println("last_name, first_name, date_of_birth, email, anniversary");
-		writer.println("Doe, John, 1982/10/08, john.doe@foobar.com, 2009/07/01");
-		writer.println("Ann, Mary, 1975/03/11, mary.ann@foobar.com, 2009/08/01");
-		writer.close();
+        MessageSender messageSender = new TestMessageAdaptor();
+        EmployeeDao employeeDao = new TestEmployeeDao();
+		service = new BirthdayService(messageSender, employeeDao);
 	}
 
 	@Test
 	public void sendsMessageForBirthdays() throws Exception {
-		service.sendGreetings(EMPLOYEE_DATA_FILE, new OurDate("2008/10/08"), "localhost", SMTP_PORT);
+		service.sendGreetings(new OurDate("2008/10/08"));
 		
 		assertEquals("message not sent?", 1, messagesSent.size());
-		Message message = messagesSent.get(0);
-		assertEquals("Happy Birthday, dear John!", message.getContent());
-		assertEquals("Happy Birthday!", message.getSubject());
-		assertEquals(1, message.getAllRecipients().length);		
-		assertEquals("john.doe@foobar.com", message.getAllRecipients()[0].toString());		
+		HashMap message = messagesSent.get(0);
+		assertEquals("Happy Birthday, dear John!", message.get("body"));
+		assertEquals("Happy Birthday!", message.get("subject"));
+		assertEquals("john.doe@foobar.com", message.get("recipient"));
 	}
 	
 	@Test
 	public void willNotSendEmailsWhenNobodysBirthday() throws Exception {		
-		service.sendGreetings(EMPLOYEE_DATA_FILE, new OurDate("2008/01/01"), "localhost", SMTP_PORT);
+		service.sendGreetings(new OurDate("2008/01/01"));
 		
 		assertEquals("what? messages?", 0, messagesSent.size());
 	}
 
+    private class TestMessageAdaptor implements MessageSender {
+        @Override
+        public void send(String sender, String subject, String body, String recipient) throws AddressException, MessagingException {
+            HashMap msg = new HashMap();
+            msg.put("sender", sender);
+            msg.put("subject", subject);
+            msg.put("recipient", recipient);
+            msg.put("body", body);
+
+            messagesSent.add(msg);
+        }
+    }
+
+    private class TestEmployeeDao implements EmployeeDao {
+        @Override
+        public List<Employee> getAll() throws IOException, ParseException {
+            List<Employee> employeeList = new ArrayList<Employee>();
+
+            employeeList.add(new Employee("John", "Doe", "1982/10/08", "john.doe@foobar.com"));
+            employeeList.add(new Employee("Mary", "Ann", "1975/03/11", "mary.ann@foobar.com"));
+
+            return employeeList;
+        }
+    }
 }
